@@ -300,6 +300,9 @@ function setupEventListeners() {
     
     // 用法示例卡片点击事件
     setupUsageCardListeners();
+    
+    // 语法帮助折叠/展开事件
+    setupSyntaxHelpToggle();
 }
 
 // 设置用法示例卡片事件监听器
@@ -327,6 +330,33 @@ function setupUsageCardListeners() {
                 }, 150);
             }
         });
+    });
+}
+
+// 设置语法帮助折叠/展开功能
+function setupSyntaxHelpToggle() {
+    const syntaxHelpToggle = document.getElementById('syntaxHelpToggle');
+    const syntaxHelpContent = document.getElementById('syntaxHelpContent');
+    const syntaxHelpChevron = document.getElementById('syntaxHelpChevron');
+    
+    if (!syntaxHelpToggle || !syntaxHelpContent || !syntaxHelpChevron) {
+        return;
+    }
+    
+    let isExpanded = false;
+    
+    syntaxHelpToggle.addEventListener('click', function() {
+        isExpanded = !isExpanded;
+        
+        if (isExpanded) {
+            // 展开
+            syntaxHelpContent.classList.remove('hidden');
+            syntaxHelpChevron.style.transform = 'rotate(180deg)';
+        } else {
+            // 折叠
+            syntaxHelpContent.classList.add('hidden');
+            syntaxHelpChevron.style.transform = 'rotate(0deg)';
+        }
     });
 }
 

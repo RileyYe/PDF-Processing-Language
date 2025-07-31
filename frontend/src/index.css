@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 自定义样式 */
+@layer base {
+  body {
+    @apply font-ms bg-ms-dark-950 min-h-screen;
+  }
+}
+
+/* Custom scrollbar */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 6px;
+}
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 3px;
+}
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Glow effect for active elements */
+.shadow-ms-glow {
+  box-shadow: 0 0 20px rgba(96, 165, 250, 0.3);
+}
+
+/* Usage card styles */
+.usage-card {
+  transition: all 0.2s ease-in-out;
+}
+.usage-card:hover {
+  background-color: #152238 !important;
+  transform: translateY(-2px);
+}
+.usage-card:active {
+  transform: translateY(0px) scale(0.98);
+}

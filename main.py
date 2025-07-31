@@ -1,13 +1,12 @@
 import os
 import io
-from pathlib import Path
 from typing import List, Union, Self, Optional
 
-from pydantic import HttpUrl, FilePath, DirectoryPath
+from pydantic import HttpUrl, FilePath
 from pydantic.types import Any
 from requests import get
-from pypdf import PdfReader, PdfWriter, PdfMerger
-from pdf2image import convert_from_bytes, convert_from_path
+from pypdf import PdfReader, PdfWriter
+from pdf2image import convert_from_bytes
 from PIL import Image
 
 
@@ -107,6 +106,34 @@ class PDFList:
             pdf.save_images(output_dir, filename_prefix)
         return self
 
+    def concat(self, others: List['PDFList']) -> 'PDF':
+        """合并多个PDFList"""
+        all_pdfs = list(self)  # 当前PDFList中的PDF
+        
+        for other_list in others:
+            all_pdfs.extend(other_list)
+        
+        # 检查是否有图像数据
+        has_images = any(hasattr(pdf, '_images') and pdf._images for pdf in all_pdfs)
+        
+        if has_images:
+            # 使用图像合并逻辑
+            return PDF._merge_images(all_pdfs)
+        else:
+            # 使用PDF合并逻辑
+            return PDFList(all_pdfs).merge()
+    
+    def to_png_enhanced(self, dpi: int = 150, mode: str = 'auto') -> Self:
+        """转换为PNG"""
+        for pdf in self:
+            pdf.to_png_enhanced(dpi, mode)
+        return self
+    
+    def save_enhanced(self, path: str, name: str):
+        """增强的保存方法"""
+        for i, pdf in enumerate(self):
+            pdf.save_enhanced(path, f"{name}_{i+1:02d}")
+
 
 class PDF:
     def __init__(self, src: Union[str, FilePath, HttpUrl, Self, bytes]):
@@ -119,6 +146,7 @@ class PDF:
         self._images: Optional[List[Image.Image]] = None  # 用于存储转换后的图像数据
 
         if isinstance(src, str):
+            print(src)
             if src.startswith(('http://', 'https://')):
                 # URL
                 response = get(src, timeout=30000)
@@ -271,8 +299,12 @@ class PDF:
             # 转换全部页面
             images = convert_from_bytes(self._data, dpi=dpi)
 
+        # 手动设置DPI信息到每个图像对象
+        for img in images:
+            img.info['dpi'] = (dpi, dpi)  # PIL期望的DPI格式是(x_dpi, y_dpi)
+            
         self._images = images  # 将图像存储在实例变量中
-        debug(f"PDF已转换为 {len(images)} 个内存中的图像")
+        debug(f"PDF已转换为 {len(images)} 个内存中的图像，DPI: {dpi}")
         return images
 
     def to_single_png(self, dpi: int = 200) -> Image.Image:
@@ -293,6 +325,10 @@ class PDF:
 
         # 创建新的空白图像
         merged_image = Image.new('RGB', (max_width, total_height), 'white')
+        
+        # 设置DPI信息（从第一个图像获取）
+        if images and 'dpi' in images[0].info:
+            merged_image.info['dpi'] = images[0].info['dpi']
 
         # 将所有图像垂直拼接
         y_offset = 0
@@ -303,7 +339,7 @@ class PDF:
         # 更新实例变量为单个图像
         self._images = [merged_image]
         debug(
-            f"PDF已转换为单个合并的PNG图像 ({merged_image.width}x{merged_image.height})")
+            f"PDF已转换为单个合并的PNG图像 ({merged_image.width}x{merged_image.height}), DPI: {merged_image.info.get('dpi', '未设置')}")
         return merged_image
 
     def save_images(self, output_dir: str = "./", filename_prefix: str = "page") -> List[str]:
@@ -329,7 +365,14 @@ class PDF:
                 filename = f"{filename_prefix}_page_{i + 1}.png"
 
             filepath = os.path.join(output_dir, filename)
-            image.save(filepath, 'PNG')
+            
+            # 准备保存选项，包含DPI信息
+            save_kwargs = {'format': 'PNG'}
+            if 'dpi' in image.info:
+                save_kwargs['dpi'] = image.info['dpi']
+                debug(f"保存图像使用DPI: {image.info['dpi']}")
+            
+            image.save(filepath, **save_kwargs)
             png_files.append(filepath)
 
         debug(f"已保存 {len(png_files)} 个PNG文件到目录: {output_dir}")
@@ -381,27 +424,111 @@ class PDF:
         return result_pdf
 
     @staticmethod
-    def pdfs_to_pngs(pdf_list: Union[List[Self], PDFList], dpi: int = 200, output_dir: str = "./") -> List[List[str]]:
+    def pdfs_to_pngs(pdf_list: Union[List[Self], PDFList], dpi: int = 200) -> List[List[Image.Image]]:
         """
         将PDF列表转换为PNG列表
         :param pdf_list: PDF对象列表或PDFList对象
         :param dpi: 图片分辨率
-        :param output_dir: 输出目录
-        :return: 每个PDF对应的PNG文件路径列表的列表
+        :return: 每个PDF对应的PIL图像对象列表的列表
         """
         # 如果是PDFList，转换为普通列表
         if isinstance(pdf_list, PDFList):
             pdf_list = pdf_list.to_list()
 
         result = []
-        for i, pdf in enumerate(pdf_list):
-            filename_prefix = f"pdf_{i + 1}"
-            png_files = pdf.to_png(dpi=dpi)  # Changed to call to_png directly
-            # Changed to collect filenames
-            result.append([img.filename for img in png_files])
+        for pdf_obj in pdf_list:
+            png_images = pdf_obj.to_png(dpi=dpi)
+            result.append(png_images)
 
         debug(f"已将 {len(pdf_list)} 个PDF转换为PNG")
         return result
+
+    @staticmethod
+    def _merge_images(pdf_list) -> 'PDF':
+        """合并PDF列表中的图像数据"""
+        all_images = []
+        for pdf in pdf_list:
+            if hasattr(pdf, '_images') and pdf._images:
+                all_images.extend(pdf._images)
+        
+        if not all_images:
+            raise ValueError("没有找到可合并的图像数据")
+        
+        if len(all_images) == 1:
+            result_pdf = PDF(b'')
+            result_pdf._images = all_images
+            return result_pdf
+        
+        # 合并图像逻辑（保持原有逻辑）
+        first_image = all_images[0]
+        
+        if first_image.mode == 'RGBA' or any(img.mode == 'RGBA' for img in all_images):
+            target_mode = 'RGBA'
+            background_color = (255, 255, 255, 255)
+        elif first_image.mode == 'RGB' or any(img.mode == 'RGB' for img in all_images):
+            target_mode = 'RGB'
+            background_color = (255, 255, 255)
+        else:
+            target_mode = 'RGB'
+            background_color = (255, 255, 255)
+        
+        max_width = max(img.width for img in all_images)
+        total_height = sum(img.height for img in all_images)
+        
+        merged_image = Image.new(target_mode, (max_width, total_height), background_color)
+        
+        if hasattr(first_image, 'info') and 'dpi' in first_image.info:
+            merged_image.info['dpi'] = first_image.info['dpi']
+        
+        y_offset = 0
+        for img in all_images:
+            if img.mode != target_mode:
+                if target_mode == 'RGBA' and img.mode == 'RGB':
+                    img = img.convert('RGBA')
+                elif target_mode == 'RGB' and img.mode == 'RGBA':
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    background.paste(img, mask=img.split()[-1])
+                    img = background
+                else:
+                    img = img.convert(target_mode)
+            
+            x_offset = (max_width - img.width) // 2
+            merged_image.paste(img, (x_offset, y_offset))
+            y_offset += img.height
+        
+        result_pdf = PDF(b'')
+        result_pdf._images = [merged_image]
+        return result_pdf
+
+    def concat(self, others: List['PDF']) -> 'PDF':
+        """合并多个PDF"""
+        if not others:
+            return self
+        
+        # 如果有图像数据，使用图像合并逻辑
+        if hasattr(self, '_images') and self._images:
+            return PDF._merge_images([self] + others)
+        
+        # 否则使用PDF合并逻辑
+        all_pdfs = [self] + others
+        pdf_list = PDFList(all_pdfs)
+        return pdf_list.merge()
+    
+    def to_png_enhanced(self, dpi: int = 150, mode: str = 'auto') -> 'PDF':
+        """转换为PNG"""
+        if mode == 'single':
+            self.to_single_png(dpi=dpi)
+        else:
+            self.to_png(dpi=dpi)
+        
+        return self
+    
+    def save_enhanced(self, path: str, name: str):
+        """增强的保存方法"""
+        if hasattr(self, '_images') and self._images:
+            self.save_images(path, name)
+        else:
+            self.save(path, f"{name}.pdf")
 
 
 if __name__ == "__main__":

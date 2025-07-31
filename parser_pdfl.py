@@ -160,8 +160,95 @@ class ConcatCommand(Transformer):
             raise ValueError("Concat命令只能应用于MultiStream")
 
         pdf_list = input_stream.content
-        merged_pdf = pdf_list.merge()
+        
+        # 检查是否有图像数据需要合并
+        has_images = any(hasattr(pdf, '_images') and pdf._images for pdf in pdf_list)
+        
+        if has_images:
+            # 合并图像数据
+            merged_pdf = self._merge_images(pdf_list)
+        else:
+            # 合并PDF数据
+            merged_pdf = pdf_list.merge()
+            
         return Stream(merged_pdf, StreamState.SINGLE)
+    
+    def _merge_images(self, pdf_list) -> 'PDF':
+        """合并PDF列表中的图像数据，保持最高质量"""
+        from PIL import Image
+        
+        all_images = []
+        # 收集所有图像
+        for pdf in pdf_list:
+            if hasattr(pdf, '_images') and pdf._images:
+                all_images.extend(pdf._images)
+        
+        if not all_images:
+            raise ValueError("没有找到可合并的图像数据")
+        
+        if len(all_images) == 1:
+            # 只有一个图像，直接返回
+            result_pdf = PDF(b'')  # 创建空PDF对象
+            result_pdf._images = all_images
+            return result_pdf
+        
+        # 分析图像特征，选择最佳模式
+        first_image = all_images[0]
+        
+        # 确定最合适的图像模式
+        if first_image.mode == 'RGBA' or any(img.mode == 'RGBA' for img in all_images):
+            target_mode = 'RGBA'
+            background_color = (255, 255, 255, 255)  # 白色背景，完全不透明
+        elif first_image.mode == 'RGB' or any(img.mode == 'RGB' for img in all_images):
+            target_mode = 'RGB'
+            background_color = (255, 255, 255)  # 白色背景
+        else:
+            # 其他模式统一转为RGB
+            target_mode = 'RGB'
+            background_color = (255, 255, 255)
+        
+        # 计算合并后图像的尺寸
+        max_width = max(img.width for img in all_images)
+        total_height = sum(img.height for img in all_images)
+        
+        # 创建新的高质量空白图像
+        merged_image = Image.new(target_mode, (max_width, total_height), background_color)
+        
+        # 保持DPI信息（使用第一个图像的DPI）
+        if hasattr(first_image, 'info') and 'dpi' in first_image.info:
+            merged_image.info['dpi'] = first_image.info['dpi']
+            print(f"✓ 保持原始DPI设置: {first_image.info['dpi']}")
+        else:
+            print("⚠ 警告: 无法获取原始图像的DPI信息")
+        
+        # 将所有图像垂直拼接，保持原始质量
+        y_offset = 0
+        for img in all_images:
+            # 确保图像模式一致，避免质量损失
+            if img.mode != target_mode:
+                if target_mode == 'RGBA' and img.mode == 'RGB':
+                    # RGB转RGBA，添加alpha通道
+                    img = img.convert('RGBA')
+                elif target_mode == 'RGB' and img.mode == 'RGBA':
+                    # RGBA转RGB，使用白色背景合成
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    background.paste(img, mask=img.split()[-1])  # 使用alpha通道作为mask
+                    img = background
+                else:
+                    img = img.convert(target_mode)
+            
+            # 高质量粘贴（居中对齐）
+            x_offset = (max_width - img.width) // 2
+            merged_image.paste(img, (x_offset, y_offset))
+            y_offset += img.height
+        
+        # 创建新的PDF对象并存储合并后的图像
+        result_pdf = PDF(b'')  # 创建空PDF对象
+        result_pdf._images = [merged_image]
+        
+        dpi_info = merged_image.info.get('dpi', '未设置')
+        print(f"✓ 已合并 {len(all_images)} 个图像为单个高质量图像 ({merged_image.width}x{merged_image.height}, {target_mode}, DPI: {dpi_info})")
+        return result_pdf
 
 
 class PNGCommand(Transformer):

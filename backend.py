@@ -5,39 +5,39 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import requests
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from parser_pdfl import parse_and_execute
+from parser_pdfl_v2 import parse_and_execute
 
 app = FastAPI(title="PDF-PL API", description="PDF Processing Language - 声明式PDF处理管道语言")
 
 # 添加CORS中间件
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 在生产环境中应该指定具体的域名
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # 前端开发服务器
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 托管静态文件
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-class ParseRequest(BaseModel):
+class ExecuteRequest(BaseModel):
     command: str
 
-class ParseResponse(BaseModel):
+class ExecuteResponse(BaseModel):
+    success: bool
     message: str
-    output_dir: str
-    files_count: int
+    output_file: Optional[str] = None
+    download_url: Optional[str] = None
+    error: Optional[str] = None
 
-@app.post("/parse")
-async def parse_command(request: ParseRequest):
+
+@app.post("/execute")
+async def execute_command(request: ExecuteRequest):
     """
     解析并执行PDF-PL管道命令，返回处理结果的压缩包
     
@@ -84,18 +84,52 @@ async def parse_command(request: ParseRequest):
         # 恢复原工作目录
         os.chdir(original_cwd)
         
-        # 返回zip文件
-        return FileResponse(
-            path=zip_path,
-            filename=zip_filename,
-            media_type="application/zip",
-            headers={
-                "Content-Disposition": f"attachment; filename={zip_filename}",
-                "X-Files-Count": str(files_count)
-            }
-        )
+        # 将zip文件移动到输出目录以便下载
+        final_zip_path = Path("output") / zip_filename
+        final_zip_path.parent.mkdir(exist_ok=True)
+        shutil.move(zip_path, final_zip_path)
         
-    except Exception as e:
+        # 上传到OSS服务
+        try:
+            with open(final_zip_path, 'rb') as f:
+                files = {'file': (zip_filename, f, 'application/zip')}
+                response = requests.post('http://localhost:9000/upload', files=files, timeout=30)
+                
+            if response.status_code == 200:
+                oss_data = response.json()
+                if oss_data.get('success'):
+                    # 上传成功，删除本地文件
+                    os.remove(final_zip_path)
+                    
+                    return ExecuteResponse(
+                        success=True,
+                        message=f"管道执行成功！生成了 {files_count} 个文件，已上传到OSS。",
+                        output_file=zip_filename,
+                        download_url=oss_data.get('download_url')
+                    )
+                else:
+                    # OSS上传失败，返回本地文件
+                    return ExecuteResponse(
+                        success=True,
+                        message=f"管道执行成功！生成了 {files_count} 个文件。(OSS上传失败，使用本地文件)",
+                        output_file=zip_filename
+                    )
+            else:
+                # OSS服务响应错误，返回本地文件
+                return ExecuteResponse(
+                    success=True,
+                    message=f"管道执行成功！生成了 {files_count} 个文件。(OSS服务不可用，使用本地文件)",
+                    output_file=zip_filename
+                )
+        except (requests.exceptions.RequestException, IOError) as e:
+            # OSS上传出现异常，返回本地文件
+            return ExecuteResponse(
+                success=True,
+                message=f"管道执行成功！生成了 {files_count} 个文件。(OSS上传异常：{str(e)}，使用本地文件)",
+                output_file=zip_filename
+            )
+        
+    except (OSError, ValueError, RuntimeError) as e:
         # 恢复原工作目录
         os.chdir(original_cwd)
         
@@ -103,17 +137,26 @@ async def parse_command(request: ParseRequest):
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
         
-        # 抛出HTTP异常
-        raise HTTPException(status_code=500, detail=f"{str(e)}")
+        # 返回错误响应
+        return ExecuteResponse(
+            success=False,
+            message="管道执行失败",
+            error=str(e)
+        )
 
 @app.get("/")
 async def root():
     """
-    根路径，返回前端页面
+    API 根路径
     """
-    with open("static/index.html", "r", encoding="utf-8") as f:
-        html_content = f.read()
-    return HTMLResponse(content=html_content)
+    return {
+        "message": "PDF-PL API Server",
+        "version": "1.0.0",
+        "description": "PDF Processing Language - 声明式PDF处理管道语言 API 服务",
+        "frontend": "前端服务运行在 http://localhost:3000",
+        "docs": "/docs",
+        "redoc": "/redoc"
+    }
 
 @app.get("/api")
 async def api_info():
@@ -142,6 +185,22 @@ async def api_info():
             "frontend": "GET / - 前端界面"
         }
     }
+
+@app.get("/download/{filename}")
+async def download_file(filename: str):
+    """
+    下载生成的文件
+    """
+    file_path = Path("output") / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件未找到")
+    
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type="application/zip"
+    )
+
 
 @app.get("/health")
 async def health_check():
