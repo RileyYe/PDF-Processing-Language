@@ -60,8 +60,8 @@ const QuickStart: React.FC<QuickStartProps & { mode?: 'text' | 'visual'; onVisua
     {
       id: 'high-res',
       title: '高分辨率合并图',
-      description: '转换为高分辨率单张合并图片',
-      command: 'Load{url:"https://example.com/document.pdf"} | PNG{dpi:600} | Save{name:"high_res_image"}',
+      description: '分离每页后转换为PNG，然后合并为单张图片',
+      command: 'Load{url:"https://example.com/document.pdf"} | Select{mode:"each"} | PNG{dpi:600} | Concat | Save{name:"high_res_image"}',
       color: 'red',
       icon: (
         <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">

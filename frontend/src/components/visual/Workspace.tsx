@@ -12,6 +12,7 @@ interface WorkspaceProps {
   onBlockDelete: (blockId: string) => void;
   onParameterChange: (blockId: string, paramName: string, value: string) => void;
   onBlockDrop: (blockType: BlockType, position: { x: number; y: number }) => void;
+  onBlockHeightChange: (blockId: string, heightDelta: number) => void;
 }
 
 const Workspace = forwardRef<HTMLDivElement, WorkspaceProps>(({
@@ -22,7 +23,8 @@ const Workspace = forwardRef<HTMLDivElement, WorkspaceProps>(({
   onBlockDisconnect,
   onBlockDelete,
   onParameterChange,
-  onBlockDrop
+  onBlockDrop,
+  onBlockHeightChange
 }, ref) => {
   const [{ isOver }, drop] = useDrop({
     accept: 'BLOCK',
@@ -65,7 +67,9 @@ const Workspace = forwardRef<HTMLDivElement, WorkspaceProps>(({
     if (!draggedDefinition) return;
 
     const SNAP_DISTANCE = 80; // 增加吸附距离
-    let bestConnection: { targetId: string; position: { x: number; y: number }; type: 'next' | 'previous' } | null = null;
+    
+    type ConnectionType = { targetId: string; position: { x: number; y: number }; type: 'next' | 'previous' };
+    let bestConnection: ConnectionType | null = null;
     let minDistance = Infinity;
     
     blocks.forEach(targetBlock => {
@@ -129,12 +133,13 @@ const Workspace = forwardRef<HTMLDivElement, WorkspaceProps>(({
 
     // 执行最佳连接
     if (bestConnection) {
-      onBlockMove(draggedBlockId, bestConnection.position);
+      const connection = bestConnection as ConnectionType;
+      onBlockMove(draggedBlockId, connection.position);
       
-      if (bestConnection.type === 'next') {
-        onBlockConnect(bestConnection.targetId, draggedBlockId);
-      } else {
-        onBlockConnect(draggedBlockId, bestConnection.targetId);
+      if (connection.type === 'next') {
+        onBlockConnect(connection.targetId, draggedBlockId);
+      } else if (connection.type === 'previous') {
+        onBlockConnect(draggedBlockId, connection.targetId);
       }
     }
   };
@@ -271,6 +276,7 @@ const Workspace = forwardRef<HTMLDivElement, WorkspaceProps>(({
               onParameterChange={onParameterChange}
               onConnect={onBlockConnect}
               onDisconnect={onBlockDisconnect}
+              onHeightChange={onBlockHeightChange}
               allBlocks={blocks}
             />
         );

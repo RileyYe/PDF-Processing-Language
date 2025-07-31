@@ -91,12 +91,12 @@ const SyntaxHelp: React.FC<SyntaxHelpProps> = ({ className = '' }) => {
                   <p className="text-ms-dark-300">转换为PNG图片，指定DPI</p>
                 </div>
                 <div className="bg-ms-dark-700 rounded-md p-3 border border-ms-dark-600">
-                  <p className="text-yellow-400 font-mono mb-1">PNG{'{dpi:300, mode: "single"}'}</p>
-                  <p className="text-ms-dark-300">指定DPI，合并为单个图片</p>
-                </div>
-                <div className="bg-ms-dark-700 rounded-md p-3 border border-ms-dark-600">
                   <p className="text-yellow-400 font-mono mb-1">Concat</p>
                   <p className="text-ms-dark-300">合并多个页面为单个文件</p>
+                </div>
+                <div className="bg-ms-dark-700 rounded-md p-3 border border-ms-dark-600">
+                  <p className="text-yellow-400 font-mono mb-1">Select{'{mode:"each"}'} | PNG | Concat</p>
+                  <p className="text-ms-dark-300">分离页面，转换为PNG，然后合并为单个图片</p>
                 </div>
               </div>
             </div>

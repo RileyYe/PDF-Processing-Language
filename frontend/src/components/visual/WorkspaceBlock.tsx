@@ -10,21 +10,45 @@ interface WorkspaceBlockProps {
   onParameterChange: (blockId: string, paramName: string, value: string) => void;
   onConnect: (sourceId: string, targetId: string) => void;
   onDisconnect: (blockId: string) => void;
+  onHeightChange: (blockId: string, heightDelta: number) => void;
   allBlocks: WorkspaceBlockType[];
 }
 
 const WorkspaceBlock: React.FC<WorkspaceBlockProps> = ({
   block,
   definition,
-  onMove,
+  onMove: _onMove,
   onDelete,
   onParameterChange,
-  onConnect,
+  onConnect: _onConnect,
   onDisconnect,
-  allBlocks
+  onHeightChange,
+  allBlocks: _allBlocks
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showConnectors, setShowConnectors] = useState(false);
+
+  // 处理展开/折叠状态变化
+  const handleExpandToggle = () => {
+    const wasExpanded = isExpanded;
+    const willExpand = !wasExpanded;
+    
+    // 计算高度变化（估算值）
+    const parameterCount = definition.parameters.length;
+    const heightPerParameter = 55; // 包括label、input和间距
+    const parametersAreaPadding = 24; // padding和border
+    const totalParametersHeight = parameterCount * heightPerParameter + parametersAreaPadding;
+    
+    // 如果要展开，高度增加；如果要折叠，高度减少
+    const heightDelta = willExpand ? totalParametersHeight : -totalParametersHeight;
+    
+    setIsExpanded(willExpand);
+    
+    // 通知父组件高度变化
+    if (parameterCount > 0) {
+      onHeightChange(block.id, heightDelta);
+    }
+  };
 
   const [{ isDragging }, drag] = useDrag({
     type: 'BLOCK',
@@ -37,7 +61,7 @@ const WorkspaceBlock: React.FC<WorkspaceBlockProps> = ({
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),
     }),
-    end: (item, monitor) => {
+    end: (_item, monitor) => {
       // 拖拽结束后的处理
       if (!monitor.didDrop()) {
         // 如果没有成功拖拽到目标位置，可以添加一些反馈
@@ -162,7 +186,7 @@ const WorkspaceBlock: React.FC<WorkspaceBlockProps> = ({
           <div className="flex items-center space-x-2">
             {definition.parameters.length > 0 && (
               <button
-                onClick={() => setIsExpanded(!isExpanded)}
+                onClick={handleExpandToggle}
                 className="text-white hover:text-ms-blue transition-colors duration-200"
               >
                 <svg 

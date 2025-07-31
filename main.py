@@ -123,10 +123,10 @@ class PDFList:
             # 使用PDF合并逻辑
             return PDFList(all_pdfs).merge()
     
-    def to_png_enhanced(self, dpi: int = 150, mode: str = 'auto') -> Self:
+    def to_png_enhanced(self, dpi: int = 150) -> Self:
         """转换为PNG"""
         for pdf in self:
-            pdf.to_png_enhanced(dpi, mode)
+            pdf.to_png_enhanced(dpi)
         return self
     
     def save_enhanced(self, path: str, name: str):
@@ -514,13 +514,9 @@ class PDF:
         pdf_list = PDFList(all_pdfs)
         return pdf_list.merge()
     
-    def to_png_enhanced(self, dpi: int = 150, mode: str = 'auto') -> 'PDF':
-        """转换为PNG"""
-        if mode == 'single':
-            self.to_single_png(dpi=dpi)
-        else:
-            self.to_png(dpi=dpi)
-        
+    def to_png_enhanced(self, dpi: int = 150) -> 'PDF':
+        """转换为PNG（多页模式）"""
+        self.to_png(dpi=dpi)
         return self
     
     def save_enhanced(self, path: str, name: str):

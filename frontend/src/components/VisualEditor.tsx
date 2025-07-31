@@ -58,8 +58,7 @@ const VisualEditor: React.FC<VisualEditorProps> = ({ onExecute, exampleBlocks, c
       icon: '🖼️',
       description: '转换为PNG图片',
       parameters: [
-        { name: 'dpi', type: 'number', label: 'DPI', placeholder: '300' },
-        { name: 'mode', type: 'select', label: '模式', options: ['single', 'multiple'], placeholder: 'multiple' }
+        { name: 'dpi', type: 'number', label: 'DPI', placeholder: '300' }
       ],
       hasNext: true,
       hasPrevious: true
@@ -303,6 +302,41 @@ const VisualEditor: React.FC<VisualEditorProps> = ({ onExecute, exampleBlocks, c
     setGeneratedCommand('');
   }, []);
 
+  // 处理积木块高度变化时的位置调整
+  const handleBlockHeightChange = useCallback((blockId: string, heightDelta: number) => {
+    if (heightDelta === 0) return;
+
+    // 找到所有下游积木块
+    const findDownstreamBlocks = (currentBlockId: string): string[] => {
+      const downstreamIds: string[] = [];
+      const currentBlock = workspaceBlocks.find(b => b.id === currentBlockId);
+      
+      if (currentBlock?.nextBlockId) {
+        downstreamIds.push(currentBlock.nextBlockId);
+        downstreamIds.push(...findDownstreamBlocks(currentBlock.nextBlockId));
+      }
+      
+      return downstreamIds;
+    };
+
+    const downstreamBlockIds = findDownstreamBlocks(blockId);
+    
+    if (downstreamBlockIds.length > 0) {
+      setWorkspaceBlocks(prev => prev.map(block => {
+        if (downstreamBlockIds.includes(block.id)) {
+          return {
+            ...block,
+            position: {
+              ...block.position,
+              y: block.position.y + heightDelta
+            }
+          };
+        }
+        return block;
+      }));
+    }
+  }, [workspaceBlocks]);
+
   // 执行命令
   const handleExecute = useCallback(async () => {
     if (!generatedCommand.trim()) {
@@ -312,12 +346,11 @@ const VisualEditor: React.FC<VisualEditorProps> = ({ onExecute, exampleBlocks, c
     await onExecute(generatedCommand);
   }, [generatedCommand, onExecute]);
 
-  // 处理文件上传点击
+  // 文件上传功能
   const handleUploadClick = () => {
     fileInputRef.current?.click();
   };
 
-  // 处理文件上传
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -333,18 +366,18 @@ const VisualEditor: React.FC<VisualEditorProps> = ({ onExecute, exampleBlocks, c
       const result = await uploadFile(file);
       
       if (result.success && result.download_url) {
-        // 在工作区添加Load积木块
-        const newBlock: WorkspaceBlock = {
+        // 创建一个新的Load积木块
+        const loadBlock: WorkspaceBlock = {
           id: `load-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           type: 'load',
-          position: { x: 100, y: 100 },
+          position: { x: 50, y: 50 }, // 默认位置
           parameters: { url: result.download_url },
           nextBlockId: null,
           previousBlockId: null
         };
 
-        setWorkspaceBlocks(prev => [...prev, newBlock]);
-        alert(`文件上传成功！已自动添加Load积木块。文件ID: ${result.file_id}`);
+        setWorkspaceBlocks(prev => [...prev, loadBlock]);
+        alert(`文件上传成功！已自动创建Load积木块。文件ID: ${result.file_id}`);
       } else {
         alert(result.error || '文件上传失败');
       }
@@ -387,13 +420,14 @@ const VisualEditor: React.FC<VisualEditorProps> = ({ onExecute, exampleBlocks, c
               </button>
               <button 
                 onClick={clearWorkspace}
-                className="px-4 py-2 h-11 text-sm font-medium text-ms-dark-300 bg-ms-dark-700 border border-ms-dark-600 rounded-md hover:bg-ms-dark-600 hover:border-ms-dark-500 hover:text-white focus:outline-none focus:ring-2 focus:ring-ms-blue focus:ring-offset-2 focus:ring-offset-ms-dark-800 transition-all duration-200"
+                disabled={isUploading}
+                className="px-4 py-2 h-11 text-sm font-medium text-ms-dark-300 bg-ms-dark-700 border border-ms-dark-600 rounded-md hover:bg-ms-dark-600 hover:border-ms-dark-500 hover:text-white focus:outline-none focus:ring-2 focus:ring-ms-blue focus:ring-offset-2 focus:ring-offset-ms-dark-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 清空
               </button>
               <button 
                 onClick={handleExecute}
-                disabled={!generatedCommand.trim()}
+                disabled={!generatedCommand.trim() || isUploading}
                 className="px-6 py-2 h-11 text-sm font-medium text-white bg-ms-blue border border-transparent rounded-md hover:bg-ms-blue-dark hover:shadow-ms-glow focus:outline-none focus:ring-2 focus:ring-ms-blue focus:ring-offset-2 focus:ring-offset-ms-dark-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 执行程序
@@ -403,7 +437,7 @@ const VisualEditor: React.FC<VisualEditorProps> = ({ onExecute, exampleBlocks, c
         </div>
 
         {/* Main Content */}
-        <div className="flex h-[600px]">
+        <div className="flex h-128">
           {/* Toolbox */}
           <div className="w-64 bg-ms-dark-850 border-r border-ms-dark-700">
             <Toolbox 
@@ -424,6 +458,7 @@ const VisualEditor: React.FC<VisualEditorProps> = ({ onExecute, exampleBlocks, c
               onBlockDelete={deleteBlock}
               onParameterChange={updateBlockParameter}
               onBlockDrop={addBlockToWorkspace}
+              onBlockHeightChange={handleBlockHeightChange}
             />
           </div>
         </div>

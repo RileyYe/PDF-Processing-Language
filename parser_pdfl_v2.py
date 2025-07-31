@@ -154,146 +154,6 @@ class CommandRegistry:
 # 全局命令注册表
 registry = CommandRegistry()
 
-
-# 为现有类添加接口支持
-def extend_pdf_classes():
-    """扩展PDF和PDFList类以支持新接口"""
-    
-    # 图像合并辅助方法
-    def _merge_images(pdf_list) -> 'PDF':
-        """合并PDF列表中的图像数据"""
-        from PIL import Image
-        
-        all_images = []
-        for pdf in pdf_list:
-            if hasattr(pdf, '_images') and pdf._images:  # noqa: SLF001
-                all_images.extend(pdf._images)  # noqa: SLF001
-        
-        if not all_images:
-            raise ValueError("没有找到可合并的图像数据")
-        
-        if len(all_images) == 1:
-            result_pdf = PDF(b'')
-            result_pdf._images = all_images  # noqa: SLF001
-            return result_pdf
-        
-        # 合并图像逻辑（保持原有逻辑）
-        first_image = all_images[0]
-        
-        if first_image.mode == 'RGBA' or any(img.mode == 'RGBA' for img in all_images):
-            target_mode = 'RGBA'
-            background_color = (255, 255, 255, 255)
-        elif first_image.mode == 'RGB' or any(img.mode == 'RGB' for img in all_images):
-            target_mode = 'RGB'
-            background_color = (255, 255, 255)
-        else:
-            target_mode = 'RGB'
-            background_color = (255, 255, 255)
-        
-        max_width = max(img.width for img in all_images)
-        total_height = sum(img.height for img in all_images)
-        
-        merged_image = Image.new(target_mode, (max_width, total_height), background_color)
-        
-        if hasattr(first_image, 'info') and 'dpi' in first_image.info:
-            merged_image.info['dpi'] = first_image.info['dpi']
-        
-        y_offset = 0
-        for img in all_images:
-            if img.mode != target_mode:
-                if target_mode == 'RGBA' and img.mode == 'RGB':
-                    img = img.convert('RGBA')
-                elif target_mode == 'RGB' and img.mode == 'RGBA':
-                    background = Image.new('RGB', img.size, (255, 255, 255))
-                    background.paste(img, mask=img.split()[-1])
-                    img = background
-                else:
-                    img = img.convert(target_mode)
-            
-            x_offset = (max_width - img.width) // 2
-            merged_image.paste(img, (x_offset, y_offset))
-            y_offset += img.height
-        
-        result_pdf = PDF(b'')
-        result_pdf._images = [merged_image]  # noqa: SLF001
-        return result_pdf
-    
-    # 为PDF类添加concat方法
-    def pdf_concat(self, others: List['PDF']) -> 'PDF':
-        """合并多个PDF"""
-        if not others:
-            return self
-        
-        # 如果有图像数据，使用图像合并逻辑
-        if hasattr(self, '_images') and self._images:  # noqa: SLF001
-            return _merge_images([self] + others)
-        
-        # 否则使用PDF合并逻辑
-        all_pdfs = [self] + others
-        pdf_list = PDFList(all_pdfs)
-        return pdf_list.merge()
-    
-    def pdf_to_png(self, dpi: int = 150, mode: str = 'auto') -> 'PDF':
-        """转换为PNG"""
-        page_count = self.get_page_count()
-        
-        if mode == 'single' or (mode == 'auto' and page_count > 1):
-            self.to_single_png(dpi=dpi)
-        else:
-            self.to_png(dpi=dpi)
-        
-        return self
-    
-    def pdf_save_enhanced(self, path: str, name: str):
-        """增强的保存方法"""
-        if hasattr(self, '_images') and self._images:  # noqa: SLF001
-            self.save_images(path, name)
-        else:
-            self.save(path, f"{name}.pdf")
-    
-    # 为PDFList类添加concat方法
-    def pdflist_concat(self, others: List['PDFList']) -> 'PDF':
-        """合并多个PDFList"""
-        all_pdfs = list(self)  # 当前PDFList中的PDF
-        
-        for other_list in others:
-            all_pdfs.extend(other_list)
-        
-        # 检查是否有图像数据
-        has_images = any(hasattr(pdf, '_images') and pdf._images for pdf in all_pdfs)  # noqa: SLF001
-        
-        if has_images:
-            # 使用图像合并逻辑
-            return _merge_images(all_pdfs)
-        else:
-            # 使用PDF合并逻辑
-            return PDFList(all_pdfs).merge()
-    
-    def pdflist_to_png(self, dpi: int = 150, mode: str = 'auto') -> 'PDFList':
-        """转换为PNG"""
-        for pdf in self:
-            pdf.to_png_enhanced(dpi, mode)
-        return self
-    
-    def pdflist_save_enhanced(self, path: str, name: str):
-        """增强的保存方法"""
-        for i, pdf in enumerate(self):
-            pdf.save_enhanced(path, f"{name}_{i+1:02d}")
-    
-    # 动态添加方法到类
-    PDF.concat = pdf_concat
-    PDF.to_png_enhanced = pdf_to_png
-    PDF.save_enhanced = pdf_save_enhanced
-    
-    PDFList.concat = pdflist_concat
-    PDFList.to_png_enhanced = pdflist_to_png
-    PDFList.save_enhanced = pdflist_save_enhanced
-
-
-# 执行扩展
-extend_pdf_classes()
-
-
 # === 命令实现 ===
 
 @registry.register('Load')
@@ -411,18 +271,18 @@ class PNGCommand(Transformer):
 
     def execute(self, input_stream: Stream, ctx: PipelineContext) -> Stream:
         dpi = self.params.get('dpi', ctx.default_dpi)
-        mode = self.params.get('mode', 'multipage')
 
-        ctx.log(f"转换为PNG (DPI: {dpi}, Mode: {mode})")
-
+        ctx.log(f"转换为PNG (DPI: {dpi})")
+        print(f"转换为PNG (DPI: {dpi})")
+        print(input_stream)
         if input_stream.state == StreamState.SINGLE:
             pdf = input_stream.content
-            pdf.to_png_enhanced(dpi=dpi, mode=mode)
+            pdf.to_png_enhanced(dpi=dpi)
             return Stream(pdf, StreamState.SINGLE)
 
         elif input_stream.state == StreamState.MULTI:
             pdf_list = input_stream.content
-            pdf_list.to_png_enhanced(dpi=dpi, mode=mode)
+            pdf_list.to_png_enhanced(dpi=dpi)
             return Stream(pdf_list, StreamState.MULTI)
 
         else:
