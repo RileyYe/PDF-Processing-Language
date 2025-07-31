@@ -1,4 +1,5 @@
-/.venv
-/__pycache__
-/uploads
+**/.venv
+**/__pycache__
+**/uploads
 **/node_modules
+**/output
